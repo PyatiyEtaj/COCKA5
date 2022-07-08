@@ -7,11 +7,14 @@ namespace ProxyV2
         static void Main(string[] args)
         {
             var loggerfactory = LoggerFactory.Create(
-                (buidler) => buidler.AddConsole());
+                (buidler) => buidler.AddSystemdConsole());
             var logger = loggerfactory.CreateLogger<ServerSocks5>();
             string address = "127.0.0.1";
             int port = 8082;
-            new ServerSocks5(logger, 65536, 400).Listen(address, port);
+            using (var server = new ServerSocks5(logger, 65536, 400))
+            {
+                server.Listen(address, port);
+            }
         }
     }
 }
