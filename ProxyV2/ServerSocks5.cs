@@ -103,7 +103,7 @@ namespace ProxyV2
             {
                 await server.ConnectAsync(addr, port, CancellationToken.None);
                 await SocksTunnel(client, server);
-                _logger.LogInformation("Tunnel is close");
+                _logger.LogInformation($"Tunnel is close -- client:{client.RemoteEndPoint} remote:{addr}");
             }
         }
 
@@ -132,7 +132,6 @@ namespace ProxyV2
             };
 
             await WriteAsync(stream, resultSocks5.ToByteArray());
-            _logger.LogInformation($"Connection success");
             
             return (new IPAddress(resultSocks5.Address), resultSocks5.Port);
         }
@@ -145,7 +144,6 @@ namespace ProxyV2
             _logger.LogInformation($"Listen {address}:{port}");
             while (true)
             {
-                _logger.LogInformation("Waiting for a connection... ");
                 var client = _server.AcceptTcpClient();
                 Task.Run(async () => {
                     var localClient = client;
@@ -154,6 +152,7 @@ namespace ProxyV2
                         _logger.LogInformation($"Connected: {client.Client.LocalEndPoint}/{client.Client.RemoteEndPoint}");
                         var stream = client.GetStream();
                         var connectionData = await ConnectionAsync(stream);
+                        _logger.LogInformation("Socks5 Connection success");
 
                         await TunnelingData(client.Client, connectionData.Addr, connectionData.Port);
                     }
