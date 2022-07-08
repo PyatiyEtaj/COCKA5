@@ -169,12 +169,12 @@ namespace ProxyV2
                     var localClient = client;
                     try
                     {
-                        _logger.LogInformation($"Connected: {client.Client.LocalEndPoint}/{client.Client.RemoteEndPoint}");
-                        var stream = client.GetStream();
+                        _logger.LogInformation($"Connected: {localClient.Client.LocalEndPoint}/{localClient.Client.RemoteEndPoint}");
+                        var stream = localClient.GetStream();
                         var connectionData = await ConnectionAsync(stream);
                         _logger.LogInformation("Socks5 Connection success");
 
-                        await TunnelingData(client.Client, connectionData);
+                        await TunnelingData(localClient.Client, connectionData);
                     }
                     catch (Exception ex)
                     {
