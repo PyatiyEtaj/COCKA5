@@ -21,7 +21,7 @@ namespace ProxyV2.Socks5
 
             Version = data.ElementAt(0);
             Command = (Socks5.Command)data.ElementAt(1);
-            // Reserved
+            // Reserved = data[0x2];
             AdressType = (Socks5.AddressType)data.ElementAt(3);
 
             int skip = AdressType == AddressType.DomainName ? 5 : 4;
@@ -34,7 +34,7 @@ namespace ProxyV2.Socks5
         {
             string addr = default;
             short port = default;
-            if (AdressType == AddressType.IPv4)
+            if (AdressType == AddressType.IPv4 || AdressType == AddressType.IPv6)
             {
                 addr = string.Join('.', Address);
             }

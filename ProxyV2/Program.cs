@@ -1,18 +1,17 @@
-﻿using System.Threading.Tasks;
-using System;
-using System.Net;
+﻿using Microsoft.Extensions.Logging;
 
 namespace ProxyV2
 {
     class Program
     {
-
-        static async Task Main(string[] args)
+        static void Main(string[] args)
         {
-            string address = "192.168.0.104";
+            var loggerfactory = LoggerFactory.Create(
+                (buidler) => buidler.AddConsole());
+            var logger = loggerfactory.CreateLogger<ServerSocks5>();
+            string address = "127.0.0.1";
             int port = 8082;
-            Console.WriteLine($"==< start on {address}:{port} >==");
-            await new ServerSocks5(256, 2000).Listen(address, 8082);
+            new ServerSocks5(logger, 65536, 400).Listen(address, port);
         }
     }
 }

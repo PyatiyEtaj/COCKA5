@@ -6,28 +6,13 @@ namespace ProxyV2.Socks5
 {
     public class ServerAfterHi
     {
-        public byte Version { get; }
+        public byte Version { get; } = Socks5.Socks5Consts.Socks5;
         public Socks5ServerResponseStatus Status { get; set; }
-        public byte Reserved { get; }
+        public byte Reserved { get; } = 0x00;
         public Socks5.AddressType AdressType { get; set; }
         public byte[] Address { get; set; }
-        public short Port { get => (short)(_port[0] << 8 | _port[1]); }
-        private byte[] _port;
-
-        public ServerAfterHi(IEnumerable<byte> data)
-        {
-            if (data.Count() < 4) throw new Exception("wrong after hi socks5 bytes");
-
-            Version = data.ElementAt(0);
-            Status = (Socks5.Socks5ServerResponseStatus)data.ElementAt(1);
-            // Reserved
-            AdressType = (Socks5.AddressType)data.ElementAt(3);
-
-            int skip = AdressType == AddressType.DomainName ? 5 : 4;
-
-            Address = data.Skip(skip).Take(data.Count() - skip - 2).ToArray();
-            _port = data.Skip(skip + Address.Length).ToArray();
-        }
+        public short Port { get => (short)(PortBytes[0] << 8 | PortBytes[1]); }
+        public byte[] PortBytes { get; set; } = new byte[2];
 
         public byte[] ToByteArray()
         {
@@ -38,7 +23,7 @@ namespace ProxyV2.Socks5
                 (byte)AdressType,
             }
             .Concat(Address)
-            .Concat(_port)
+            .Concat(PortBytes)
             .ToArray();
         }
     }
