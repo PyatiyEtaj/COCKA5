@@ -1,6 +1,4 @@
 ﻿using Microsoft.Extensions.Logging;
-using ProxyV2.Models;
-using ProxyV2.Parsers;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -18,15 +16,12 @@ namespace ProxyV2
 {
     public class ServerSocks5 : IDisposable
     {
-        private byte[] _serverBuffer;
         private readonly ILogger<ServerSocks5> _logger;
         private readonly int _bufferSize;
         private int _timeout = 1000;
         private TcpListener _server;
-        private IParser _hostDataParser = new HostDataParser();
         public ServerSocks5(ILogger<ServerSocks5> logger, int bufferSize, int timeout)
         {
-            _serverBuffer = new byte[bufferSize];
             _logger = logger;
             _bufferSize = bufferSize;
             _timeout = timeout;
@@ -69,38 +64,6 @@ namespace ProxyV2
             await stream.WriteAsync(buffer, 0, buffer.Length);
         }
 
-        private async Task<List<byte>> SslRequestAsync(byte[] addr, string host, byte[] data)
-        {
-            using (var client = new TcpClient(AddressFamily.InterNetwork))
-            {
-                client.Connect(new IPEndPoint(new IPAddress(addr), 443));
-                using (var ssl = new SslStream(
-                    client.GetStream(),
-                    false,
-                    new RemoteCertificateValidationCallback(ValidateServerCertificate),
-                    null))
-                {
-                    //ssl.AuthenticateAsClient("localhost");
-                    var clientCertificate = new X509Certificate2();
-                    var clientCertificateCollection = new X509CertificateCollection(new X509Certificate[] { clientCertificate });
-                    ssl.AuthenticateAsClient(host, clientCertificateCollection, System.Security.Authentication.SslProtocols.None, false);
-                    await WriteAsync(ssl, data);
-                    return await ReadAsync(ssl);
-                }
-            }
-        }
-
-        private async Task<List<byte>> RequestAsync(IPAddress info, int port, byte[] data)
-        {
-            using (var client = new TcpClient(AddressFamily.InterNetwork))
-            {
-                client.Connect(info, port);
-                var stream = client.GetStream();
-                await WriteAsync(stream, data);
-                return await ReadAsync(stream);
-            }
-        }
-
         private SocketFlags GetSocketFlag(bool isNeedToBePartial)
             => isNeedToBePartial ? SocketFlags.ControlDataTruncated : SocketFlags.None;
 
@@ -114,7 +77,7 @@ namespace ProxyV2
                 {
                     var sended = await server.SendAsync(
                         new ArraySegment<byte>(buffer, 0, readed), 
-                        SocketFlags.None);
+                        GetSocketFlag(readed >= buffer.Length));
                 }
                 status = true;
             }
