@@ -18,7 +18,8 @@ namespace ProxyV2
     {
         private readonly ILogger<ServerSocks5> _logger;
         private readonly int _bufferSize;
-        private int _timeout = 1000;
+        private readonly int _timeout = 1000;
+
         private TcpListener _server;
         public ServerSocks5(ILogger<ServerSocks5> logger, int bufferSize, int timeout)
         {
@@ -33,11 +34,6 @@ namespace ProxyV2
             {
                 _server.Stop();
             }
-        }
-
-        private static bool ValidateServerCertificate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
-        {
-            return true;
         }
 
         private async Task<List<byte>> ReadAsync(Stream stream)
