@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -48,7 +49,9 @@ namespace ProxyV2.Socks5
                 port = (short)(Port.ElementAt(0) << 8 | Port.ElementAt(1));
             }
 
-            return $"type [{AdressType}] addr [{addr} {port}]";
+            var protocol = Command == Command.AsociateUdp ? "Udp" : "Tcp";
+
+            return $"type [{AdressType}] addr [{addr} {port} {protocol}]";
         }
     }
 }

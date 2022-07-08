@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using ProxyV2.Socks5;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -97,17 +98,17 @@ namespace ProxyV2
             } while (countOfTry < 10);
         }
 
-        private async Task TunnelingData(Socket client, IPAddress addr, int port)
+        private async Task TunnelingData(Socket client, ConnectionInfo info)
         {
-            using (var server = new Socket(SocketType.Stream, ProtocolType.Tcp))
+            using (var server = new Socket(SocketType.Stream, info.ProtocolType))
             {
-                await server.ConnectAsync(addr, port, CancellationToken.None);
+                await server.ConnectAsync(info.Addr, info.Port, CancellationToken.None);
                 await SocksTunnel(client, server);
-                _logger.LogInformation($"Tunnel is close -- client:{client.RemoteEndPoint} remote:{addr}");
+                _logger.LogInformation($"Tunnel is close -- client:{client.RemoteEndPoint} remote:{info.Addr}");
             }
         }
 
-        private async Task<(IPAddress Addr, int Port)> ConnectionAsync(Stream stream)
+        private async Task<ConnectionInfo> ConnectionAsync(Stream stream)
         {
             var data = await ReadAsync(stream);
             var hi = new Socks5.ClientHi(data);
@@ -133,7 +134,14 @@ namespace ProxyV2
 
             await WriteAsync(stream, resultSocks5.ToByteArray());
             
-            return (new IPAddress(resultSocks5.Address), resultSocks5.Port);
+            return new ConnectionInfo
+            {
+                Addr = new IPAddress(resultSocks5.Address),
+                Port = resultSocks5.Port,
+                ProtocolType = afterHi.Command == Command.AsociateUdp 
+                    ? ProtocolType.Udp 
+                    : ProtocolType.Tcp
+            };
         }
 
         public void Listen(string address, int port)
@@ -154,7 +162,7 @@ namespace ProxyV2
                         var connectionData = await ConnectionAsync(stream);
                         _logger.LogInformation("Socks5 Connection success");
 
-                        await TunnelingData(client.Client, connectionData.Addr, connectionData.Port);
+                        await TunnelingData(client.Client, connectionData);
                     }
                     catch (Exception ex)
                     {
