@@ -6,14 +6,24 @@ namespace ProxyV2
     {
         static void Main(string[] args)
         {
-            var loggerfactory = LoggerFactory.Create(
-                (buidler) => buidler.AddSystemdConsole());
-            var logger = loggerfactory.CreateLogger<ServerSocks5>();
-            string address = "127.0.0.1";
-            int port = 8082;
-            using (var server = new ServerSocks5(logger, 65536, 400))
+            var logger = LoggerFactory
+                .Create(buidler => buidler.AddSystemdConsole())
+                .CreateLogger<ServerSocks5>();
+
+            var config = new ServerConfiguration
             {
-                server.Listen(address, port);
+                Host = "127.0.0.1",
+                Port = 8082,
+                BufferSizeBytes = 65536,
+                CountOfTriesReadDataFromSocket = 10,
+                TimeoutBetweenReadWriteSocketDataMs = 100,
+                ReconnectMaxTries = 3,
+                ReconnectTimeoutMs = 1000,
+            };
+
+            using (var server = new ServerSocks5(logger, config))
+            {
+                server.Listen();
             }
         }
     }

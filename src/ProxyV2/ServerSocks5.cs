@@ -18,15 +18,13 @@ namespace ProxyV2
     public class ServerSocks5 : IDisposable
     {
         private readonly ILogger<ServerSocks5> _logger;
-        private readonly int _bufferSize;
-        private readonly int _timeout = 1000;
+        private readonly ServerConfiguration _config;
 
         private TcpListener _server;
-        public ServerSocks5(ILogger<ServerSocks5> logger, int bufferSize, int timeout)
+        public ServerSocks5(ILogger<ServerSocks5> logger, ServerConfiguration config)
         {
             _logger = logger;
-            _bufferSize = bufferSize;
-            _timeout = timeout;
+            _config = config;
         }
 
         public void Dispose()
@@ -40,8 +38,9 @@ namespace ProxyV2
         private async Task<List<byte>> ReadAsync(Stream stream)
         {
             List<byte> data = new List<byte>();
-            var buffer = new byte[_bufferSize];
-            stream.ReadTimeout = _timeout;
+            var buffer = new byte[_config.BufferSizeBytes];
+            stream.ReadTimeout = _config.TimeoutBetweenReadWriteSocketDataMs * 
+                _config.CountOfTriesReadDataFromSocket;
             int read;
             do
             {
@@ -83,7 +82,7 @@ namespace ProxyV2
 
         private async Task SocksTunnel(Socket client, Socket server)
         {
-            var buffer = new byte[_bufferSize];
+            var buffer = new byte[_config.BufferSizeBytes];
             int countOfTry = 0;
             do
             {
@@ -94,17 +93,30 @@ namespace ProxyV2
                 if (status) 
                     countOfTry = 0;
 
-                await Task.Delay(100);
-            } while (countOfTry < 10);
+                await Task.Delay(_config.TimeoutBetweenReadWriteSocketDataMs);
+            } while (countOfTry < _config.CountOfTriesReadDataFromSocket);
         }
 
         private async Task TunnelingData(Socket client, ConnectionInfo info)
         {
             using (var server = new Socket(SocketType.Stream, info.ProtocolType))
             {
-                await server.ConnectAsync(info.Addr, info.Port, CancellationToken.None);
-                await SocksTunnel(client, server);
-                _logger.LogInformation($"Tunnel is close -- client:{client.RemoteEndPoint} remote:{info.Addr}");
+                int reconnectTry = 0;
+                do
+                {
+                    await server.ConnectAsync(info.Addr, info.Port, CancellationToken.None);
+                    if (server.Connected)
+                    {
+                        await SocksTunnel(client, server);
+                        _logger.LogInformation($"Tunnel is close -- client:{client.RemoteEndPoint} remote:{info.Addr}");
+                        break;
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"Cant connect, try to reconnect {++reconnectTry} after {_config.ReconnectTimeoutMs}");
+                        await Task.Delay(_config.ReconnectTimeoutMs);
+                    }
+                } while (reconnectTry < _config.ReconnectMaxTries);
             }
         }
 
@@ -144,12 +156,12 @@ namespace ProxyV2
             };
         }
 
-        public void Listen(string address, int port)
+        public void Listen()
         {
-            _server = new TcpListener(IPAddress.Parse(address), port);
+            _server = new TcpListener(IPAddress.Parse(_config.Host), _config.Port);
             _server.Start();
 
-            _logger.LogInformation($"Listen {address}:{port}");
+            _logger.LogInformation($"Listen {_config.Host}:{_config.Port}");
             while (true)
             {
                 var client = _server.AcceptTcpClient();
