@@ -136,8 +136,9 @@ namespace ProxyV2
                     }
                     else
                     {
+                        ++reconnectTry;
                         status = Socks5ServerResponseStatus.ConnectionFailure;
-                        _logger.LogWarning($"Cant connect, try to reconnect {++reconnectTry} " +
+                        _logger.LogWarning($"Cant connect, try to reconnect [{reconnectTry}] " +
                             $"after {_config.ReconnectTimeoutMs}");
                         await Task.Delay(_config.ReconnectTimeoutMs);
                     }
