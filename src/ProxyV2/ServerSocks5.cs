@@ -5,11 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Net.Security;
 using System.Net.Sockets;
-using System.Security.Cryptography.X509Certificates;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -39,7 +35,7 @@ namespace ProxyV2
         {
             List<byte> data = new List<byte>();
             var buffer = new byte[_config.BufferSizeBytes];
-            stream.ReadTimeout = _config.TimeoutBetweenReadWriteSocketDataMs * 
+            stream.ReadTimeout = _config.TimeoutBetweenReadWriteSocketDataMs *
                 _config.CountOfTriesReadDataFromSocket;
             int read;
             do
@@ -72,7 +68,7 @@ namespace ProxyV2
                 if (readed > 0)
                 {
                     var sended = await server.SendAsync(
-                        new ArraySegment<byte>(buffer, 0, readed), 
+                        new ArraySegment<byte>(buffer, 0, readed),
                         GetSocketFlag(readed >= buffer.Length));
                 }
                 status = true;
@@ -90,37 +86,74 @@ namespace ProxyV2
                              await TransferFromTo(server, client, buffer);
 
                 countOfTry++;
-                if (status) 
+                if (status)
                     countOfTry = 0;
 
                 await Task.Delay(_config.TimeoutBetweenReadWriteSocketDataMs);
             } while (countOfTry < _config.CountOfTriesReadDataFromSocket);
         }
 
-        private async Task TunnelingData(Socket client, ConnectionInfo info)
+        private async Task TunnelingData(Socket client, Socket server)
         {
-            using (var server = new Socket(SocketType.Stream, info.ProtocolType))
+            try
+            {
+                await SocksTunnel(client, server);
+                _logger.LogInformation($"Tunnel is close -- client:{client.RemoteEndPoint}/" +
+                    $"remote:{server.RemoteEndPoint}");
+            }
+            finally
+            {
+                server.Disconnect(false);
+                server.Dispose();
+            }
+        }
+
+        private async
+            Task<(Socket Socket, Socks5ServerResponseStatus Status)>
+            TryToConnect(byte[] addr, short port, Command cmd)
+        {
+            var status = Socks5ServerResponseStatus.Ok;
+
+            var socket = new Socket(
+                SocketType.Stream,
+                cmd == Command.AsociateUdp
+                    ? ProtocolType.Udp
+                    : ProtocolType.Tcp);
+
+            try
             {
                 int reconnectTry = 0;
                 do
                 {
-                    await server.ConnectAsync(info.Addr, info.Port, CancellationToken.None);
-                    if (server.Connected)
+                    await socket.ConnectAsync(
+                        new IPAddress(addr),
+                        port,
+                        CancellationToken.None);
+                    if (socket.Connected)
                     {
-                        await SocksTunnel(client, server);
-                        _logger.LogInformation($"Tunnel is close -- client:{client.RemoteEndPoint} remote:{info.Addr}");
+                        status = Socks5ServerResponseStatus.Ok;
                         break;
                     }
                     else
                     {
-                        _logger.LogWarning($"Cant connect, try to reconnect {++reconnectTry} after {_config.ReconnectTimeoutMs}");
+                        status = Socks5ServerResponseStatus.ConnectionFailure;
+                        _logger.LogWarning($"Cant connect, try to reconnect {++reconnectTry} " +
+                            $"after {_config.ReconnectTimeoutMs}");
                         await Task.Delay(_config.ReconnectTimeoutMs);
                     }
                 } while (reconnectTry < _config.ReconnectMaxTries);
             }
+            catch (Exception ex)
+            {
+                status = Socks5ServerResponseStatus.NetUnavailable;
+                socket.Disconnect(false);
+                socket.Dispose();
+            }
+
+            return (socket, status);
         }
 
-        private async Task<ConnectionInfo> ConnectionAsync(Stream stream)
+        private async Task<Socket> ConnectionAsync(Stream stream)
         {
             var data = await ReadAsync(stream);
             var hi = new Socks5.ClientHi(data);
@@ -134,26 +167,22 @@ namespace ProxyV2
             var afterHi = new Socks5.ClientAfterHi(data);
             _logger.LogInformation($"Get connected - {afterHi}");
             var resolved = Socks5.AddressResolver.Resolve(afterHi.AdressType, afterHi.Address);
-            if (resolved.AdressType == Socks5.AddressType.Error) throw new Exception("Cant Dns.GetHostName");
+            if (resolved.AdressType == Socks5.AddressType.Error)
+                throw new Exception("Cant Dns.GetHostName");
+
+            var result = await TryToConnect(resolved.Address, afterHi.Port, afterHi.Command);
 
             var resultSocks5 = new Socks5.ServerAfterHi
             {
-                Status = Socks5.Socks5ServerResponseStatus.Ok,
+                Status = result.Status,
                 Address = resolved.Address,
-                PortBytes = afterHi.Port,
+                PortBytes = afterHi.PortBytes,
                 AdressType = resolved.AdressType
             };
 
             await WriteAsync(stream, resultSocks5.ToByteArray());
-            
-            return new ConnectionInfo
-            {
-                Addr = new IPAddress(resultSocks5.Address),
-                Port = resultSocks5.Port,
-                ProtocolType = afterHi.Command == Command.AsociateUdp 
-                    ? ProtocolType.Udp 
-                    : ProtocolType.Tcp
-            };
+
+            return result.Socket;
         }
 
         public void Listen()
@@ -165,16 +194,20 @@ namespace ProxyV2
             while (true)
             {
                 var client = _server.AcceptTcpClient();
-                Task.Run(async () => {
+                Task.Run(async () =>
+                {
                     var localClient = client;
                     try
                     {
-                        _logger.LogInformation($"Connected: {localClient.Client.LocalEndPoint}/{localClient.Client.RemoteEndPoint}");
+                        _logger.LogInformation($"Connected -- local:{localClient.Client.LocalEndPoint}/" +
+                            $"remote:{localClient.Client.RemoteEndPoint}");
                         var stream = localClient.GetStream();
-                        var connectionData = await ConnectionAsync(stream);
-                        _logger.LogInformation("Socks5 Connection success");
-
-                        await TunnelingData(localClient.Client, connectionData);
+                        var server = await ConnectionAsync(stream);
+                        if (server?.Connected == true)
+                        {
+                            _logger.LogInformation("Socks5 Connection success");
+                            await TunnelingData(localClient.Client, server);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -182,6 +215,8 @@ namespace ProxyV2
                     }
                     finally
                     {
+                        _logger.LogInformation($"Close -- local:{localClient.Client.LocalEndPoint}/" +
+                            $"remote:{localClient.Client.RemoteEndPoint}");
                         localClient.Close();
                     }
                 });

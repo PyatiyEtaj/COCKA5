@@ -1,9 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Sockets;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace ProxyV2.Socks5
 {
@@ -14,7 +12,8 @@ namespace ProxyV2.Socks5
         public byte Reserved { get; set; }
         public AddressType AdressType { get; set; }
         public byte[] Address { get; set; }
-        public byte[] Port { get; set; }
+        public byte[] PortBytes { get; set; }
+        public short Port { get => (short)(PortBytes[0] << 8 | PortBytes[1]); }
 
         public ClientAfterHi(IEnumerable<byte> data)
         {
@@ -28,13 +27,12 @@ namespace ProxyV2.Socks5
             int skip = AdressType == AddressType.DomainName ? 5 : 4;
 
             Address = data.Skip(skip).Take(data.Count() - skip - 2).ToArray();
-            Port = data.Skip(skip + Address.Length).ToArray();
+            PortBytes = data.Skip(skip + Address.Length).ToArray();
         }
 
         public override string ToString()
         {
             string addr = default;
-            short port = default;
             if (AdressType == AddressType.IPv4 || AdressType == AddressType.IPv6)
             {
                 addr = string.Join('.', Address);
@@ -44,14 +42,9 @@ namespace ProxyV2.Socks5
                 addr = Encoding.ASCII.GetString(Address);
             }
 
-            if (Port is not null)
-            {
-                port = (short)(Port.ElementAt(0) << 8 | Port.ElementAt(1));
-            }
-
             var protocol = Command == Command.AsociateUdp ? "Udp" : "Tcp";
 
-            return $"type [{AdressType}] addr [{addr} {port} {protocol}]";
+            return $"type [{AdressType}] addr [{addr} {Port} {protocol}]";
         }
     }
 }
