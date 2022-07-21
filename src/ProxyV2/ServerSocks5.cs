@@ -31,7 +31,7 @@ namespace ProxyV2
             }
         }
 
-        private async Task<List<byte>> ReadAsync(Stream stream)
+        private async ValueTask<List<byte>> ReadAsync(Stream stream)
         {
             List<byte> data = new List<byte>();
             var buffer = new byte[_config.BufferSizeBytes];
@@ -51,32 +51,29 @@ namespace ProxyV2
             return data;
         }
 
-        private async Task WriteAsync(Stream stream, byte[] buffer)
+        private async ValueTask WriteAsync(Stream stream, byte[] buffer)
         {
             await stream.WriteAsync(buffer, 0, buffer.Length);
         }
 
-        private SocketFlags GetSocketFlag(bool isNeedToBePartial)
-            => isNeedToBePartial ? SocketFlags.ControlDataTruncated : SocketFlags.None;
-
-        private async Task<bool> TransferFromTo(Socket client, Socket server, byte[] buffer)
+        private async ValueTask<bool> TransferFromTo(Socket client, Socket server, byte[] buffer)
         {
             bool status = false;
             while (client.Available > 0)
             {
-                var readed = await client.ReceiveAsync(buffer, SocketFlags.None);
+                var readed = await client.ReceiveAsync(new Memory<byte>(buffer), SocketFlags.None);
                 if (readed > 0)
                 {
                     var sended = await server.SendAsync(
-                        new ArraySegment<byte>(buffer, 0, readed),
-                        GetSocketFlag(readed >= buffer.Length));
+                        new ReadOnlyMemory<byte>(buffer, 0, readed), 
+                        SocketFlags.None);
                 }
                 status = true;
             }
             return status;
         }
 
-        private async Task SocksTunnel(Socket client, Socket server)
+        private async ValueTask SocksTunnel(Socket client, Socket server)
         {
             var buffer = new byte[_config.BufferSizeBytes];
             int countOfTry = 0;
@@ -93,7 +90,7 @@ namespace ProxyV2
             } while (countOfTry < _config.CountOfTriesReadDataFromSocket);
         }
 
-        private async Task TunnelingData(Socket client, Socket server)
+        private async ValueTask TunnelingData(Socket client, Socket server)
         {
             try
             {
@@ -109,7 +106,7 @@ namespace ProxyV2
         }
 
         private async
-            Task<(Socket Socket, Socks5ServerResponseStatus Status)>
+            ValueTask<(Socket Socket, Socks5ServerResponseStatus Status)>
             TryToConnect(byte[] addr, short port, Command cmd)
         {
             var status = Socks5ServerResponseStatus.Ok;
@@ -154,7 +151,7 @@ namespace ProxyV2
             return (socket, status);
         }
 
-        private async Task<Socket> ConnectionAsync(Stream stream)
+        private async ValueTask<Socket> ConnectionAsync(Stream stream)
         {
             var data = await ReadAsync(stream);
             var hi = new Socks5.ClientHi(data);
