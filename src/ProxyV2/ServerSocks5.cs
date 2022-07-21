@@ -2,8 +2,6 @@
 using ProxyV2.Socks5;
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -31,29 +29,32 @@ namespace ProxyV2
             }
         }
 
-        private async ValueTask<List<byte>> ReadAsync(Stream stream)
+        private async ValueTask<IEnumerable<byte>> ReadAsync(Socket socket)
         {
             List<byte> data = new List<byte>();
-            var buffer = new byte[_config.BufferSizeBytes];
-            stream.ReadTimeout = _config.TimeoutBetweenReadWriteSocketDataMs *
-                _config.CountOfTriesReadDataFromSocket;
-            int read;
+            var buffer = new Memory<byte>(new byte[_config.BufferSizeBytes]);
+            int readed = 0;
             do
             {
-                read = await stream.ReadAsync(buffer, 0, buffer.Length);
-                if (read > 0)
-                {
-                    data.AddRange(buffer.Take(read));
-                }
-            }
-            while (read >= buffer.Length);
+                readed = await socket.ReceiveAsync(buffer, SocketFlags.None);
+                if (readed < 1) continue;
 
+                if (readed >= _config.BufferSizeBytes)
+                {
+                    data.AddRange(buffer.ToArray());
+                }
+                else
+                {
+                    data.AddRange(buffer.Slice(0, readed).ToArray());
+                }
+            } while (socket.Available > 0);
             return data;
         }
 
-        private async ValueTask WriteAsync(Stream stream, byte[] buffer)
+        private async ValueTask WriteAsync(Socket socket, byte[] buffer)
         {
-            await stream.WriteAsync(buffer, 0, buffer.Length);
+            var readOnlyBuffer = new ReadOnlyMemory<byte>(buffer);
+            await socket.SendAsync(readOnlyBuffer, SocketFlags.None);
         }
 
         private async ValueTask<bool> TransferFromTo(Socket client, Socket server, byte[] buffer)
@@ -65,7 +66,7 @@ namespace ProxyV2
                 if (readed > 0)
                 {
                     var sended = await server.SendAsync(
-                        new ReadOnlyMemory<byte>(buffer, 0, readed), 
+                        new ReadOnlyMemory<byte>(buffer, 0, readed),
                         SocketFlags.None);
                 }
                 status = true;
@@ -151,17 +152,17 @@ namespace ProxyV2
             return (socket, status);
         }
 
-        private async ValueTask<Socket> ConnectionAsync(Stream stream)
+        private async ValueTask<Socket> ConnectionAsync(Socket socket)
         {
-            var data = await ReadAsync(stream);
+            var data = await ReadAsync(socket);
             var hi = new Socks5.ClientHi(data);
 
             Socks5.Socks5Validator.CheckVersion(hi.Version);
 
             var serverHi = new Socks5.ServerHi(hi.Methods);
-            await WriteAsync(stream, serverHi.ToByteArray());
+            await WriteAsync(socket, serverHi.ToByteArray());
 
-            data = await ReadAsync(stream);
+            data = await ReadAsync(socket);
             var afterHi = new Socks5.ClientAfterHi(data);
             _logger.LogInformation($"Get connected - {afterHi}");
             var resolved = Socks5.AddressResolver.Resolve(afterHi.AdressType, afterHi.Address);
@@ -178,7 +179,7 @@ namespace ProxyV2
                 AdressType = resolved.AdressType
             };
 
-            await WriteAsync(stream, resultSocks5.ToByteArray());
+            await WriteAsync(socket, resultSocks5.ToByteArray());
 
             return result.Socket;
         }
@@ -200,7 +201,7 @@ namespace ProxyV2
                         _logger.LogInformation($"Connected -- local:{localClient.Client.LocalEndPoint}/" +
                             $"remote:{localClient.Client.RemoteEndPoint}");
                         var stream = localClient.GetStream();
-                        var server = await ConnectionAsync(stream);
+                        var server = await ConnectionAsync(stream.Socket);
                         if (server?.Connected == true)
                         {
                             _logger.LogInformation("Socks5 Connection success");
